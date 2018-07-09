@@ -33,8 +33,11 @@ limitations under the License.
 #include "tensorflow/stream_executor/platform/logging.h"
 #include "tensorflow/stream_executor/platform/port.h"
 
-namespace perftools {
-namespace gputools {
+#if !defined(PLATFORM_GOOGLE)
+#include "cuda/cuda_config.h"
+#endif
+
+namespace stream_executor {
 namespace internal {
 
 string GetCudaVersion() { return TF_CUDA_VERSION; }
@@ -96,10 +99,19 @@ string GetCudnnVersion() { return TF_CUDNN_VERSION; }
 }
 
 /* static */ port::Status DsoLoader::GetLibcuptiDsoHandle(void** dso_handle) {
+#if defined(ANDROID_TEGRA)
+  // On Android devices the CUDA version number is not added to the library
+  // name.
+  return GetDsoHandle(
+      FindDsoPath(port::Env::Default()->FormatLibraryFileName("cupti", ""),
+                  GetCudaCuptiLibraryPath()),
+      dso_handle);
+#else
   return GetDsoHandle(FindDsoPath(port::Env::Default()->FormatLibraryFileName(
                                       "cupti", GetCudaVersion()),
                                   GetCudaCuptiLibraryPath()),
                       dso_handle);
+#endif
 }
 
 static mutex& GetRpathMutex() {
@@ -123,9 +135,13 @@ static mutex& GetRpathMutex() {
   port::Status s =
       port::Env::Default()->LoadLibrary(path_string.c_str(), dso_handle);
   if (!s.ok()) {
+#if !defined(PLATFORM_WINDOWS)
+    char* ld_library_path = getenv("LD_LIBRARY_PATH");
+#endif
     LOG(INFO) << "Couldn't open CUDA library " << path
 #if !defined(PLATFORM_WINDOWS)
-              << ". LD_LIBRARY_PATH: " << getenv("LD_LIBRARY_PATH")
+              << ". LD_LIBRARY_PATH: "
+              << (ld_library_path != nullptr ? ld_library_path : "")
 #endif
     ;
     return port::Status(port::error::FAILED_PRECONDITION,
@@ -274,5 +290,4 @@ static std::vector<string>* CreatePrimordialRpaths() {
 }
 
 }  // namespace internal
-}  // namespace gputools
-}  // namespace perftools
+}  // namespace stream_executor
